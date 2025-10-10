@@ -12,14 +12,16 @@ To build a `k6` binary with this extension, first ensure you have the prerequisi
 Then:
 
 1. Install `xk6`:
-  ```shell
-  $ go install go.k6.io/xk6/cmd/xk6@latest
-  ```
+
+```shell
+$ go install go.k6.io/xk6/cmd/xk6@latest
+```
 
 2. Build the binary:
-  ```shell
-  $ xk6 build --with github.com/deejiw/xk6-gcp@latest
-  ```
+
+```shell
+$ xk6 build --with github.com/suppachai-n/xk6-gcp@latest
+```
 
 ## Example
 
@@ -61,4 +63,5 @@ export default function() {
 ```
 
 ## Command
+
 k6 run script.js
