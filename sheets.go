@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -170,13 +171,36 @@ func (g *Gcp) SpreadsheetCreateIfNotExists(spreadsheetId string, sheetName strin
 			return fmt.Errorf("unable to create sheet %s: %v", sheetName, err)
 		}
 
-		// Add headers if provided
-		if headers != nil && len(headers) > 0 {
-			headerRange := &sheets.ValueRange{
-				Values: [][]interface{}{headers},
+		// Add headers if provided. Sort headers alphabetically for deterministic ordering
+		// but keep "id" as the first column if it is present.
+		if len(headers) > 0 {
+			// Convert headers to []string
+			strs := make([]string, 0, len(headers))
+			hasID := false
+			for _, h := range headers {
+				s := fmt.Sprint(h)
+				if s == "id" {
+					hasID = true
+					continue
+				}
+				strs = append(strs, s)
 			}
 
-			_, err = g.sheet.Spreadsheets.Values.Update(spreadsheetId, fmt.Sprintf("%s!A1:%s1", sheetName, columnIndexToLetter(len(headers)-1)), headerRange).ValueInputOption("RAW").Context(ctx).Do()
+			sort.Strings(strs)
+
+			ordered := make([]interface{}, 0, len(headers))
+			if hasID {
+				ordered = append(ordered, "id")
+			}
+			for _, s := range strs {
+				ordered = append(ordered, s)
+			}
+
+			headerRange := &sheets.ValueRange{
+				Values: [][]interface{}{ordered},
+			}
+
+			_, err = g.sheet.Spreadsheets.Values.Update(spreadsheetId, fmt.Sprintf("%s!A1:%s1", sheetName, columnIndexToLetter(len(ordered)-1)), headerRange).ValueInputOption("RAW").Context(ctx).Do()
 			if err != nil {
 				return fmt.Errorf("unable to add headers to sheet %s: %v", sheetName, err)
 			}
@@ -198,14 +222,21 @@ func (g *Gcp) SpreadsheetAppendWithUniqueId(spreadsheetId string, sheetName stri
 	ctx := context.Background()
 	g.sheetClient()
 
-	// Extract keys from values map to create headers
-	defaultHeaders := make([]interface{}, 0, len(values)+1)
-	defaultHeaders = append(defaultHeaders, "id") // Always include ID column
-
+	// Extract keys from values map to create headers.
+	// Build a deterministic, alphabetically-sorted list with "id" first.
+	keyNames := make([]string, 0, len(values))
 	for key := range values {
-		if key != "id" { // Skip ID as we already added it
-			defaultHeaders = append(defaultHeaders, key)
+		if key == "id" {
+			continue
 		}
+		keyNames = append(keyNames, key)
+	}
+	sort.Strings(keyNames)
+
+	defaultHeaders := make([]interface{}, 0, len(keyNames)+1)
+	defaultHeaders = append(defaultHeaders, "id")
+	for _, k := range keyNames {
+		defaultHeaders = append(defaultHeaders, k)
 	}
 
 	// Create sheet if it doesn't exist
@@ -240,28 +271,31 @@ func (g *Gcp) SpreadsheetGetUniqueIdByFiltersAndAppendIfNotExist(spreadsheetId s
 	ctx := context.Background()
 	g.sheetClient()
 
-	// Extract the keys from the filters map to create default headers if needed
-	defaultHeaders := make([]interface{}, 0, len(filters)+1)
-	defaultHeaders = append(defaultHeaders, "id") // Always include the ID header
-
+	// Build a deterministic, alphabetically-sorted list of headers from filters and values, with "id" first.
+	keySet := make(map[string]struct{})
 	for key := range filters {
-		defaultHeaders = append(defaultHeaders, key)
+		if key == "id" {
+			continue
+		}
+		keySet[key] = struct{}{}
+	}
+	for key := range values {
+		if key == "id" {
+			continue
+		}
+		keySet[key] = struct{}{}
 	}
 
-	// Add keys from values that aren't in filters
-	for key := range values {
-		if key != "id" { // Skip ID as we already added it
-			found := false
-			for _, header := range defaultHeaders {
-				if header.(string) == key {
-					found = true
-					break
-				}
-			}
-			if !found {
-				defaultHeaders = append(defaultHeaders, key)
-			}
-		}
+	keyNames := make([]string, 0, len(keySet))
+	for k := range keySet {
+		keyNames = append(keyNames, k)
+	}
+	sort.Strings(keyNames)
+
+	defaultHeaders := make([]interface{}, 0, len(keyNames)+1)
+	defaultHeaders = append(defaultHeaders, "id")
+	for _, k := range keyNames {
+		defaultHeaders = append(defaultHeaders, k)
 	}
 
 	// Create the sheet if it doesn't exist with default headers
