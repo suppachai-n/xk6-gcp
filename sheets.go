@@ -120,6 +120,72 @@ func (g *Gcp) SpreadsheetGetRowByFilters(spreadsheetId string, sheetName string,
 	return nil, nil
 }
 
+// Creates a new sheet in a spreadsheet if it doesn't exist and adds header row.
+// Parameters:
+// - spreadsheetId: the ID of the Google Sheet.
+// - sheetName: the name of the sheet to create.
+// - headers: a slice of strings representing the column headers for the new sheet.
+// Returns:
+// - error: an error if one occurred, otherwise nil.
+func (g *Gcp) SpreadsheetCreateIfNotExists(spreadsheetId string, sheetName string, headers []interface{}) error {
+	ctx := context.Background()
+	g.sheetClient()
+
+	// Check if the spreadsheet exists
+	spreadsheet, err := g.sheet.Spreadsheets.Get(spreadsheetId).Do()
+	if err != nil {
+		return fmt.Errorf("unable to get spreadsheet with ID %s: %v", spreadsheetId, err)
+	}
+
+	// Check if the sheet exists
+	sheetExists := false
+	for _, sheet := range spreadsheet.Sheets {
+		if sheet.Properties.Title == sheetName {
+			sheetExists = true
+			break
+		}
+	}
+
+	// If sheet doesn't exist, create it
+	if !sheetExists {
+		// Create a new sheet
+		addSheetRequest := &sheets.AddSheetRequest{
+			Properties: &sheets.SheetProperties{
+				Title: sheetName,
+			},
+		}
+
+		// Create a batch update request
+		batchUpdateRequest := &sheets.BatchUpdateSpreadsheetRequest{
+			Requests: []*sheets.Request{
+				{
+					AddSheet: addSheetRequest,
+				},
+			},
+		}
+
+		// Execute the batch update
+		_, err = g.sheet.Spreadsheets.BatchUpdate(spreadsheetId, batchUpdateRequest).Context(ctx).Do()
+		if err != nil {
+			return fmt.Errorf("unable to create sheet %s: %v", sheetName, err)
+		}
+
+		// Add headers if provided
+		if headers != nil && len(headers) > 0 {
+			headerRange := &sheets.ValueRange{
+				Values: [][]interface{}{headers},
+			}
+
+			_, err = g.sheet.Spreadsheets.Values.Update(spreadsheetId, fmt.Sprintf("%s!A1:%s1", sheetName, columnIndexToLetter(len(headers)-1)), headerRange).ValueInputOption("RAW").Context(ctx).Do()
+			if err != nil {
+				return fmt.Errorf("unable to add headers to sheet %s: %v", sheetName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
 // This function appends a row of data to a Google Sheet with a unique ID.
 // Parameters:
 // - spreadsheetId: the ID of the Google Sheet.
@@ -131,6 +197,22 @@ func (g *Gcp) SpreadsheetGetRowByFilters(spreadsheetId string, sheetName string,
 func (g *Gcp) SpreadsheetAppendWithUniqueId(spreadsheetId string, sheetName string, values map[string]interface{}) (int64, error) {
 	ctx := context.Background()
 	g.sheetClient()
+
+	// Extract keys from values map to create headers
+	defaultHeaders := make([]interface{}, 0, len(values)+1)
+	defaultHeaders = append(defaultHeaders, "id") // Always include ID column
+
+	for key := range values {
+		if key != "id" { // Skip ID as we already added it
+			defaultHeaders = append(defaultHeaders, key)
+		}
+	}
+
+	// Create sheet if it doesn't exist
+	err := g.SpreadsheetCreateIfNotExists(spreadsheetId, sheetName, defaultHeaders)
+	if err != nil {
+		return 0, err
+	}
 
 	_, headers, err := g.findCellRangeAndHeaders(spreadsheetId, sheetName)
 	if err != nil {
@@ -157,6 +239,36 @@ func (g *Gcp) SpreadsheetGetUniqueIdByFiltersAndAppendIfNotExist(spreadsheetId s
 	var id int64
 	ctx := context.Background()
 	g.sheetClient()
+
+	// Extract the keys from the filters map to create default headers if needed
+	defaultHeaders := make([]interface{}, 0, len(filters)+1)
+	defaultHeaders = append(defaultHeaders, "id") // Always include the ID header
+
+	for key := range filters {
+		defaultHeaders = append(defaultHeaders, key)
+	}
+
+	// Add keys from values that aren't in filters
+	for key := range values {
+		if key != "id" { // Skip ID as we already added it
+			found := false
+			for _, header := range defaultHeaders {
+				if header.(string) == key {
+					found = true
+					break
+				}
+			}
+			if !found {
+				defaultHeaders = append(defaultHeaders, key)
+			}
+		}
+	}
+
+	// Create the sheet if it doesn't exist with default headers
+	err := g.SpreadsheetCreateIfNotExists(spreadsheetId, sheetName, defaultHeaders)
+	if err != nil {
+		return 0, err
+	}
 
 	_, headers, err := g.findCellRangeAndHeaders(spreadsheetId, sheetName)
 	if err != nil {
