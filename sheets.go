@@ -266,6 +266,47 @@ func (g *Gcp) SpreadsheetAppendWithUniqueId(spreadsheetId string, sheetName stri
 	return id, nil
 }
 
+func (g *Gcp) SpreadsheetAppendWithUniqueIdToSpecificRow(spreadsheetId string, sheetName string, values map[string]interface{}, specificRow int64) (int64, error) {
+	ctx := context.Background()
+	g.sheetClient()
+
+	// Extract keys from values map to create headers
+	defaultHeaders := make([]interface{}, 0, len(values)+1)
+	defaultHeaders = append(defaultHeaders, "id") // Always include ID column
+
+	for key := range values {
+		if key != "id" { // Skip ID as we already added it
+			defaultHeaders = append(defaultHeaders, key)
+		}
+	}
+
+	// Create sheet if it doesn't exist
+	err := g.SpreadsheetCreateIfNotExists(spreadsheetId, sheetName, defaultHeaders)
+	if err != nil {
+		return 0, err
+	}
+
+	_, headers, err := g.findCellRangeAndHeaders(spreadsheetId, sheetName)
+	if err != nil {
+		return 0, err
+	}
+
+	rows, _ := g.SpreadsheetGet(spreadsheetId, sheetName, "A:A")
+	id := getUniqueId(rows)
+	values["id"] = id
+
+	row := &sheets.ValueRange{
+		Values: [][]interface{}{sortValuesByHeaders(headers, values)},
+	}
+
+	res, err := g.sheet.Spreadsheets.Values.Update(spreadsheetId, fmt.Sprintf("%s!A%d", sheetName, specificRow), row).ValueInputOption("RAW").Context(ctx).Do()
+	if err != nil || res.HTTPStatusCode != 200 {
+		return 0, fmt.Errorf("unable to append data into sheet %s <%v>", sheetName, err)
+	}
+
+	return id, nil
+}
+
 func (g *Gcp) SpreadsheetGetUniqueIdByFiltersAndAppendIfNotExist(spreadsheetId string, sheetName string, filters map[string]string, values map[string]interface{}) (int64, error) {
 	var id int64
 	ctx := context.Background()
