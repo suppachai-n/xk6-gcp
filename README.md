@@ -14,13 +14,13 @@ Then:
 1. Install `xk6`:
 
 ```shell
-$ go install go.k6.io/xk6/cmd/xk6@latest
+go install go.k6.io/xk6/cmd/xk6@latest
 ```
 
 2. Build the binary:
 
 ```shell
-$ xk6 build --with github.com/suppachai-n/xk6-gcp@latest
+xk6 build --with github.com/suppachai-n/xk6-gcp@latest
 ```
 
 ## Example
@@ -65,3 +65,19 @@ export default function() {
 ## Command
 
 k6 run script.js
+
+### Build Command
+
+```sh
+xk6 build --with github.com/suppachai-n/xk6-gcp@latest \
+  --with github.com/szkiba/xk6-yaml@latest \
+  --with github.com/szkiba/xk6-csv@latest \
+  --with github.com/mostafa/xk6-kafka@latest \
+  --with github.com/grafana/xk6-kubernetes@latest \
+  --with github.com/grafana/xk6-sql@latest \
+  --with github.com/deejiw/xk6-interpret@latest \
+  --with github.com/nuttapon-f/xk6-crypto-box@latest \
+  --with github.com/ekanant/xk6-crypto-x25519@latest \
+  --with github.com/ekanant/xk6-aes-ecb@latest \
+  --with github.com/ekanant/xk6-rsa@latest
+```
